@@ -6,6 +6,9 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.PendingIntent
 import android.app.TaskStackBuilder
+import android.bluetooth.BluetoothManager
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanResult
 import android.content.Context
 import android.content.Intent
 import android.util.Log
@@ -16,9 +19,11 @@ import org.altbeacon.beacon.*
 import org.altbeacon.beacon.powersave.BackgroundPowerSaver
 import org.altbeacon.beacon.startup.BootstrapNotifier
 import org.altbeacon.beacon.startup.RegionBootstrap
+import org.altbeacon.beaconreference.MainActivity.Companion.TAG
 import org.altbeacon.bluetooth.BluetoothMedic
 import java.util.*
 
+@ExperimentalStdlibApi
 class BeaconReferenceApplication: Application(), BootstrapNotifier, RangeNotifier {
     val rangingData = RangingData()
     val monitoringData = MonitoringData()
@@ -27,6 +32,11 @@ class BeaconReferenceApplication: Application(), BootstrapNotifier, RangeNotifie
 
     override fun onCreate() {
         super.onCreate()
+        ibeaconStartScanning()
+        overflowStartScanning()
+    }
+
+    private fun ibeaconStartScanning() {
 
         val beaconManager = BeaconManager.getInstanceForApplication(this)
 
@@ -114,9 +124,9 @@ class BeaconReferenceApplication: Application(), BootstrapNotifier, RangeNotifie
         // which will be limited to scan jobs scheduled every ~15 minutes on Android 8+
         // If you want more frequent scanning (requires a foreground service on Android 8+),
         // configure that here:
-        // beaconManager.setEnableScheduledScanJobs(false);
-        // beaconManager.setBackgroundBetweenScanPeriod(0);
-        // beaconManager.setBackgroundScanPeriod(1100);
+        beaconManager.setEnableScheduledScanJobs(false);
+        beaconManager.setBackgroundBetweenScanPeriod(0);
+        beaconManager.setBackgroundScanPeriod(1100);
     }
 
     fun disableMonitoring() {
@@ -129,7 +139,7 @@ class BeaconReferenceApplication: Application(), BootstrapNotifier, RangeNotifie
         regionBootstrap = RegionBootstrap(this, region)
     }
 
-    fun setupForegroundService() {
+    private fun setupForegroundService() {
         val builder = Notification.Builder(this, "BeaconReferenceApp")
         builder.setSmallIcon(R.drawable.ic_launcher_background)
         builder.setContentTitle("Scanning for Beacons")
@@ -217,6 +227,64 @@ class BeaconReferenceApplication: Application(), BootstrapNotifier, RangeNotifie
         }
     }
 
+    private fun overflowStartScanning() {
+        val bluetoothManager = applicationContext.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+        val bluetoothAdapter = bluetoothManager.adapter
+        val scanner = bluetoothAdapter.bluetoothLeScanner
+        scanner.startScan(bleScannerCallback)
+    }
+
+    private val bleScannerCallback = object : ScanCallback() {
+
+        fun extractBeaconBytes(
+            byteBuffer: MutableList<UByte>,
+            countToExtract: Int
+        ): MutableList<UByte> {
+            // Android byte bit ordering is reversed from iOS
+            var bitBuffer = HammingEcc().bytesToBits(byteBuffer, true)
+            val byteBuffer = HammingEcc().bitsToBytes(bitBuffer)
+
+            val matchingByte: UByte = 0xAAu
+            var payload: MutableList<UByte> = arrayListOf()
+
+            var bytePosition = 8
+            var buffer = byteBuffer.drop(bytePosition).toMutableList()
+
+            bitBuffer = HammingEcc().bytesToBits(buffer)
+            val hammingBitsToDecode = 8 * (countToExtract + 1) + 7
+
+            bitBuffer = bitBuffer.dropLast(bitBuffer.size - hammingBitsToDecode).toMutableList()
+
+            val goodBits = HammingEcc().decodeBits(bitBuffer)
+            if (goodBits.size > 0) {
+                var bytes = HammingEcc().bitsToBytes(goodBits)
+                if (bytes[0] == matchingByte)
+                    payload = bytes.drop(1).toMutableList()
+                else
+                    println("This is not our overflow advert")
+            } else {
+                println("Overflow area advert does not have our beacon data or its corrupted")
+            }
+
+            return payload
+        }
+
+        // Below onScanResult is called for every Service UUID returned from BLE scan
+        override fun onScanResult(callbackType: Int, result: ScanResult?) {
+            super.onScanResult(callbackType, result)
+
+            result?.scanRecord?.getManufacturerSpecificData(0x004c)?.let {
+                val manData: UByteArray = it.toUByteArray()
+                // Overflow packet has '1' after 0x004c, and 16-bytes after the '1'
+                if (manData.count() >= 17 && manData.get(0).toUByte() == 1.toUByte()) {
+                    val payload = extractBeaconBytes(manData.drop(1).toMutableList(), 4)
+                    val major = payload[0] * 256u + payload[1]
+                    val minor = payload[2] * 256u + payload[3]
+                    println("----------   Major = $major  Minor = $minor")
+                }
+            }
+        }
+    }
 
     companion object {
         val TAG = "BeaconReference"
