@@ -17,6 +17,7 @@ import org.altbeacon.beacon.powersave.BackgroundPowerSaver
 import org.altbeacon.beacon.startup.BootstrapNotifier
 import org.altbeacon.beacon.startup.RegionBootstrap
 import org.altbeacon.bluetooth.BluetoothMedic
+import java.util.*
 
 class BeaconReferenceApplication: Application(), BootstrapNotifier, RangeNotifier {
     val rangingData = RangingData()
@@ -49,12 +50,26 @@ class BeaconReferenceApplication: Application(), BootstrapNotifier, RangeNotifie
         //beaconManager.getBeaconParsers().clear()
 
         // The example shows how to find iBeacon.
-        beaconManager.getBeaconParsers().add(
-            BeaconParser().
-                setBeaconLayout("m:2-3=0215,i:4-19,i:20-21,i:22-23,p:24-24"))
+        val beaconParser = BeaconParser()
+            .setBeaconLayout("m:2-3=0215,i:4-19,i:20-21,i:22-23,p:24-24")
+
+        beaconManager.beaconParsers.add(beaconParser)
+
+        // Start iBeacon advertisement
+        var beacon = Beacon.Builder()
+            .setId1("2f234454-cf6d-4a0f-adf2-f4911ba9ffa6")
+            .setId2("29")
+            .setId3("3700")
+            .setManufacturer(0x004c)
+            .setTxPower(-59)
+            .setDataFields(Arrays.asList())
+            .build()
+
+        val beaconTransmitter = BeaconTransmitter(applicationContext, beaconParser)
+        beaconTransmitter.startAdvertising(beacon)
 
         // enabling debugging will send lots of verbose debug information from the library to Logcat
-        // this is useful for troubleshooting problmes
+        // this is useful for troubleshooting problems
         // BeaconManager.setDebug(true)
 
 
@@ -80,9 +95,10 @@ class BeaconReferenceApplication: Application(), BootstrapNotifier, RangeNotifie
 
         // The code below will start "monitoring" for beacons matching the region definition below
         // the region definition is a wildcard that matches all beacons regardless of identifiers.
-        // if you only want to detect becaonc with a specific UUID, change the id1 paremeter to
+        // if you only want to detect beacons with a specific UUID, change the id1 parameter to
         // a UUID like "2F234454-CF6D-4A0F-ADF2-F4911BA9FFA6"
-        region = Region("wildcard-region", null, null, null)
+        region = Region("wildcard-region",
+            Identifier.parse("2F234454-CF6D-4A0F-ADF2-F4911BA9FFA6"), null, null)
         regionBootstrap = RegionBootstrap(this, region)
 
         // Note that the RegionBootstrap is a specialized form of starting beacon monitoring that
