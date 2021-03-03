@@ -62,7 +62,7 @@ class BeaconReferenceApplication: Application(), BootstrapNotifier, RangeNotifie
         // The example shows how to find iBeacon.
         val beaconParser = BeaconParser()
             .setBeaconLayout("m:2-3=0215,i:4-19,i:20-21,i:22-23,p:24-24")
-
+        beaconManager.beaconParsers.clear()
         beaconManager.beaconParsers.add(beaconParser)
 
         // Start iBeacon advertisement
@@ -108,7 +108,8 @@ class BeaconReferenceApplication: Application(), BootstrapNotifier, RangeNotifie
         // if you only want to detect beacons with a specific UUID, change the id1 parameter to
         // a UUID like "2F234454-CF6D-4A0F-ADF2-F4911BA9FFA6"
         region = Region("wildcard-region",
-            Identifier.parse("2F234454-CF6D-4A0F-ADF2-F4911BA9FFA6"), null, null)
+        //region = Region("backgroundRegion",
+            Identifier.parse("2f234454-cf6d-4a0f-adf2-f4911ba9ffa6"), null, null)
         regionBootstrap = RegionBootstrap(this, region)
 
         // Note that the RegionBootstrap is a specialized form of starting beacon monitoring that
@@ -277,10 +278,12 @@ class BeaconReferenceApplication: Application(), BootstrapNotifier, RangeNotifie
                 val manData: UByteArray = it.toUByteArray()
                 // Overflow packet has '1' after 0x004c, and 16-bytes after the '1'
                 if (manData.count() >= 17 && manData.get(0).toUByte() == 1.toUByte()) {
-                    val payload = extractBeaconBytes(manData.drop(1).toMutableList(), 4)
+                    println("manData = ${manData.toUByteArray().toList()})")
+                    val payload = extractBeaconBytes(manData.drop(1).toMutableList(), 5)
                     val major = payload[0] * 256u + payload[1]
                     val minor = payload[2] * 256u + payload[3]
-                    println("----------   Major = $major  Minor = $minor")
+                    val txPower = payload[4].toInt()-256
+                    println("----------   Payload = $payload  Major = $major  Minor = $minor, txPower=$txPower")
                 }
             }
         }
